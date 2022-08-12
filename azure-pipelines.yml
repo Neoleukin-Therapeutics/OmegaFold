@@ -1,0 +1,55 @@
+# Python package
+# Create and test a Python package on multiple Python versions.
+# Add steps that analyze code, save the dist with the build record, publish to a PyPI-compatible index, and more:
+# https://docs.microsoft.com/azure/devops/pipelines/languages/python
+
+trigger:
+  branches:
+    include:
+    - master
+    - feature/*
+    - bugfix/*
+  
+  tags:
+    include:
+    - v*
+
+pr:
+  - master
+
+resources:
+  - repo: self
+
+stages:
+- stage: build
+  dependsOn: [] # this removes the implicit dependency on previous stage and causes this to run in parallel
+  jobs:
+  - job:
+    workspace:
+      clean: all # what to clean up before the job runs
+    pool: Custom
+    steps:
+    - task: Docker@2
+      inputs:
+        containerRegistry: '$(CONTAINER_REGISTRY)'
+        repository: 'omegafold'
+        command: 'buildAndPush'
+        Dockerfile: 'Dockerfile'
+        tags: |
+          $(Build.SourceBranchName)-$(Build.BuildId)
+          $(Build.SourceBranchName)-$(Build.SourceVersion)
+          $(Build.SourceBranchName)-latest
+          $(Build.SourceBranchName) 
+
+    - task: TwineAuthenticate@1
+      displayName: 'Twine Authenticate'
+      inputs:
+        artifactFeed: '$(ARTIFACT_FEED)'
+
+    - task: Bash@3
+      condition: and(succeeded(), contains(variables['Build.SourceBranch'], 'refs/tags/v'))
+      inputs:
+        targetType: 'inline'
+        script: |
+          cat $(PYPIRC_PATH)
+          docker run -v $(pwd):$(pwd) -v $(PYPIRC_PATH):$(PYPIRC_PATH) --workdir $(pwd) $(CICD_BASE_LOCATION)/omegafold:$(Build.SourceBranchName)-$(Build.BuildId) bash -c 'python -m twine upload -r $(ARTIFACT_FEED) --config-file $(PYPIRC_PATH) /var/$(cat /var/wheel_version)'
